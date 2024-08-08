@@ -1,0 +1,3 @@
+[submodule "hwmcc20"]
+	path = hwmcc20
+	url = git@github.com:ekiwi/hwmcc20.git
