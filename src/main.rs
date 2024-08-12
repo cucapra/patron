@@ -2,8 +2,11 @@
 // released under MIT License
 // author: Kevin Laeufer <laeufer@cornell.edu>
 
+mod random;
+
 use clap::{arg, Parser};
 use patronus::*;
+use random::*;
 
 #[derive(Parser, Debug)]
 #[command(name = "patron")]
@@ -17,7 +20,19 @@ struct Args {
     filename: String,
 }
 
+static RANDOM_OPTS: RandomOptions = RandomOptions {
+    small_k: 50,
+    large_k: 10_000,
+};
+
 fn main() {
     let args = Args::parse();
-    let (ctx, sys) = btor2::parse_file(&args.filename).expect("Failed to load btor2 file!");
+    let (mut ctx, sys) = btor2::parse_file(&args.filename).expect("Failed to load btor2 file!");
+
+    // try random testing
+    match random_testing(&mut ctx, sys, RANDOM_OPTS) {
+        RandomResult::None => {
+            println!("None")
+        }
+    }
 }
