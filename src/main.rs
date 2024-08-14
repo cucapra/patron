@@ -5,6 +5,7 @@
 mod random;
 
 use clap::{arg, Parser};
+use patronus::ir::{replace_anonymous_inputs_with_zero, simplify_expressions};
 use patronus::*;
 use random::*;
 
@@ -27,7 +28,13 @@ static RANDOM_OPTS: RandomOptions = RandomOptions {
 
 fn main() {
     let args = Args::parse();
-    let (mut ctx, sys) = btor2::parse_file(&args.filename).expect("Failed to load btor2 file!");
+
+    // load system
+    let (mut ctx, mut sys) = btor2::parse_file(&args.filename).expect("Failed to load btor2 file!");
+
+    // simplify system
+    replace_anonymous_inputs_with_zero(&mut ctx, &mut sys);
+    simplify_expressions(&mut ctx, &mut sys);
 
     // try random testing
     match random_testing(&mut ctx, sys, RANDOM_OPTS) {
