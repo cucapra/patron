@@ -7,3 +7,4 @@ edition = "2021"
 patronus = "0.18.0"
 clap = { version = "4.5.14", features = ["derive"] }
 smallvec = { version = "1.13.2", features = ["union"] }
+petgraph = { version = "0.6.5" , features = []}

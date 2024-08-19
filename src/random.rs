@@ -8,6 +8,7 @@ use patronus::ir::*;
 use patronus::mc::Simulator;
 use patronus::sim::interpreter::{InitKind, Interpreter};
 use smallvec::{smallvec, SmallVec};
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Copy, Clone)]
 pub struct RandomOptions {
@@ -33,26 +34,12 @@ pub fn random_testing(
     // we initialize all states to zero, since most bugs are not reset initialization bugs
     sim.init(InitKind::Zero);
 
-    // // show all inputs
-    // let inputs = sys.get_signals(|s| s.is_input());
-    // println!("INPUTS:");
-    // for (expr_ref, input) in inputs.iter() {
-    //     let expr = ctx.get(*expr_ref);
-    //     println!("{} : {:?}", expr.serialize_to_str(ctx), expr.get_type(ctx));
-    // }
-    //
-    // // show all states
-    // println!("\nSTATES:");
-    // for (state_ref, state) in sys.states() {
-    //     let expr = ctx.get(state.symbol);
-    //     println!("{} : {:?}", expr.serialize_to_str(ctx), expr.get_type(ctx));
-    // }
-
     // show system
     println!("{}", sys.serialize_to_str(ctx));
 
     // analyze constraint dependencies
-    let constraints = analyze_constraints(ctx, &sys, false);
+    let constraints = analyze_constraints(ctx, &sys, true);
+    let constraints = merge_clusters(&constraints);
     println!("{constraints:?}");
 
     // TODO
@@ -74,39 +61,77 @@ struct Constraints {
 
 type ExprRefVec = SmallVec<[ExprRef; 4]>;
 
-/// A number of constraints that connect several inputs/states together.
+/// A number of constraints that are connected by common symbols.
 #[derive(Debug, Clone)]
 struct ConstraintCluster {
     exprs: ExprRefVec,
-    inputs: ExprRefVec,
-    states: ExprRefVec,
+    leaves: ExprRefVec,
 }
 
 /// Check to see which constraints we can fulfill
 fn analyze_constraints(
-    ctx: &Context,
+    ctx: &mut Context,
     sys: &TransitionSystem,
     init: bool,
 ) -> Vec<ConstraintCluster> {
     let state_map = sys.state_map();
+
     let mut out = Vec::new();
     // we want to see which constraints depends on which inputs
     for (expr_ref, info) in sys.constraints() {
-        //
-        let cone = if init {
-            cone_of_influence_init(ctx, sys, expr_ref)
-        } else {
-            cone_of_influence_comb(ctx, sys, expr_ref)
-        };
-        let (states, inputs) = cone.into_iter().partition(|e| state_map.contains_key(e));
-        let constraint = ConstraintCluster {
-            exprs: smallvec![expr_ref],
-            inputs,
-            states,
-        };
-        out.push(constraint);
+        // split constraints if they are conjunctions, i.e., we split and(a, b) into two constraints
+        let sub_constraints = split_conjunction(ctx, expr_ref);
+
+        for expr_ref in sub_constraints.into_iter() {
+            // analyze the constraint
+            let leaves = if init {
+                // if we are initializing, then we need to choose states and inputs
+                cone_of_influence_init(ctx, sys, expr_ref).into()
+            } else {
+                // if we are in a different cycle, then we do not actually care about states, since
+                // we cannot change them without going back in time
+                cone_of_influence_comb(ctx, sys, expr_ref)
+                    .into_iter()
+                    .filter(|e| !state_map.contains_key(e))
+                    .collect()
+            };
+
+            out.push(ConstraintCluster {
+                exprs: smallvec![expr_ref],
+                leaves,
+            });
+        }
     }
+
     out
+}
+
+fn merge_clusters(in_clusters: &[ConstraintCluster]) -> Vec<ConstraintCluster> {
+    let mut m = HashMap::new();
+    let mut clusters = Vec::new();
+    for cluster in in_clusters.iter() {
+        // collect all other constraints that share at least one leaf
+        let others: Vec<_> = cluster.leaves.iter().flat_map(|l| m.get(l)).collect();
+
+        if others.is_empty() {
+            let id = clusters.len();
+            clusters.push(cluster.clone());
+            for leaf in cluster.leaves.iter() {
+                m.insert(leaf, id);
+            }
+        } else {
+            todo!("deal with overlapping cluster");
+        }
+    }
+
+    // collect output
+    let mut indices = m.iter().map(|(_, idx)| *idx).collect::<Vec<_>>();
+    indices.sort();
+    indices.dedup();
+    indices
+        .into_iter()
+        .map(|ii| clusters[ii].clone())
+        .collect::<Vec<_>>()
 }
 
 fn split_conjunction(ctx: &mut Context, e: ExprRef) -> ExprRefVec {
