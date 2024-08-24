@@ -68,6 +68,53 @@ struct ConstraintCluster {
     leaves: ExprRefVec,
 }
 
+fn extract_constraint_graph(ctx: &mut Context, sys: &TransitionSystem, init: bool) {
+    let state_map = sys.state_map();
+    let mut out = petgraph::Graph::new_undirected();
+    let mut var_to_node = HashMap::new();
+
+    // we want to see which constraints depends on which inputs
+    for (expr_ref, info) in sys.constraints() {
+        // split constraints if they are conjunctions, i.e., we split and(a, b) into two constraints
+        let sub_constraints = split_conjunction(ctx, expr_ref);
+
+        for expr_ref in sub_constraints.into_iter() {
+            // analyze the constraint
+            let mut leaves: ExprRefVec = if init {
+                // if we are initializing, then we need to choose states and inputs
+                cone_of_influence_init(ctx, sys, expr_ref).into()
+            } else {
+                // if we are in a different cycle, then we do not actually care about states, since
+                // we cannot change them without going back in time
+                cone_of_influence_comb(ctx, sys, expr_ref)
+                    .into_iter()
+                    .filter(|e| !state_map.contains_key(e))
+                    .collect()
+            };
+
+            // constraints connect all their leaves together
+            leaves.sort();
+            leaves.dedup();
+
+            // make sure all leaves are represented as nodes
+            for leaf in leaves.iter() {
+                if !var_to_node.contains_key(leaf) {
+                    let node = out.add_node(leaf);
+                    var_to_node.insert(leaf, node);
+                }
+            }
+
+            while let Some(leaf) = leaves.pop() {
+                for other in leaves.iter() {
+                    debug_assert_ne!(leaf, *other);
+                    // constraint creates a connection
+                    out.add_edge(var_to_node[&leaf], var_to_node[other], expr_ref);
+                }
+            }
+        }
+    }
+}
+
 /// Check to see which constraints we can fulfill
 fn analyze_constraints(
     ctx: &mut Context,
