@@ -29,3 +29,22 @@ jobs:
       - name: Run tests
         run: cargo test --verbose
 
+  integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        toolchain:
+          - stable
+
+    steps:
+      - name: Update Rust to ${{ matrix.toolchain }}
+        run: rustup update ${{ matrix.toolchain }} && rustup default ${{ matrix.toolchain }}
+      - uses: actions/checkout@v4
+        with:
+          submodules: 'true'
+      - name: Build
+        run: cargo build --verbose
+      - name: Run on Shift Register w/ Depth 16
+        run: cargo run -- hwmcc19/hwmcc19-single-benchmarks/btor2/bv/mann/data-integrity/unsafe/shift_register_top_w64_d16_e0.btor2
+
