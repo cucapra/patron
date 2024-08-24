@@ -38,9 +38,13 @@ pub fn random_testing(
     println!("{}", sys.serialize_to_str(ctx));
 
     // analyze constraint dependencies
-    let constraints = analyze_constraints(ctx, &sys, true);
-    let constraints = merge_clusters(&constraints);
-    println!("{constraints:?}");
+    //let constraints = analyze_constraints(ctx, &sys, true);
+    //let constraints = merge_clusters(&constraints);
+    //println!("{constraints:?}");
+
+    let constraints = extract_constraint_graph(ctx, &sys, false);
+
+    println!("{:?}", petgraph::dot::Dot::new(&constraints));
 
     // TODO
 
@@ -68,7 +72,11 @@ struct ConstraintCluster {
     leaves: ExprRefVec,
 }
 
-fn extract_constraint_graph(ctx: &mut Context, sys: &TransitionSystem, init: bool) {
+fn extract_constraint_graph(
+    ctx: &mut Context,
+    sys: &TransitionSystem,
+    init: bool,
+) -> petgraph::Graph<ExprRef, ExprRef, petgraph::Undirected> {
     let state_map = sys.state_map();
     let mut out = petgraph::Graph::new_undirected();
     let mut var_to_node = HashMap::new();
@@ -99,11 +107,12 @@ fn extract_constraint_graph(ctx: &mut Context, sys: &TransitionSystem, init: boo
             // make sure all leaves are represented as nodes
             for leaf in leaves.iter() {
                 if !var_to_node.contains_key(leaf) {
-                    let node = out.add_node(leaf);
-                    var_to_node.insert(leaf, node);
+                    let node = out.add_node(*leaf);
+                    var_to_node.insert(*leaf, node);
                 }
             }
 
+            // generate constraint edges
             while let Some(leaf) = leaves.pop() {
                 for other in leaves.iter() {
                     debug_assert_ne!(leaf, *other);
@@ -113,6 +122,7 @@ fn extract_constraint_graph(ctx: &mut Context, sys: &TransitionSystem, init: boo
             }
         }
     }
+    out
 }
 
 /// Check to see which constraints we can fulfill

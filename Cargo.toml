@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-patronus = "0.18.0"
+patronus = "0.18.2"
 clap = { version = "4.5.14", features = ["derive"] }
 smallvec = { version = "1.13.2", features = ["union"] }
 petgraph = { version = "0.6.5" , features = []}
