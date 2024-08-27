@@ -36,6 +36,15 @@ impl ConstraintCluster {
         self.inputs.sort_unstable();
         self.inputs.dedup();
     }
+    pub fn exprs(&self) -> &ExprRefVec {
+        &self.exprs
+    }
+    pub fn states(&self) -> &ExprRefVec {
+        &self.states
+    }
+    pub fn inputs(&self) -> &ExprRefVec {
+        &self.inputs
+    }
 }
 
 /// Check to see which constraints we can fulfill
@@ -46,11 +55,11 @@ pub fn analyze_constraints(
 ) -> Vec<ConstraintCluster> {
     use petgraph::visit::NodeIndexable;
     let graph = extract_constraint_graph(ctx, sys, init);
-    println!("{:?}", petgraph::dot::Dot::new(&graph));
+    //println!("{:?}", petgraph::dot::Dot::new(&graph));
 
     // extract connected components from graph
     let groups = connected_components(&graph);
-    println!("{:?}", groups);
+    //println!("{:?}", groups);
 
     // turn components into constraint clusters
     let state_map = sys.state_map();
