@@ -18,6 +18,8 @@ pub struct RandomOptions {
     pub small_k: u64,
     /// maximum length to try
     pub large_k: u64,
+    /// probability of sampling a large instead of a small k
+    pub large_k_prob: f64,
 }
 
 #[derive(Debug)]
@@ -27,12 +29,12 @@ pub enum RandomResult {
 }
 
 pub fn random_testing(
-    ctx: &mut Context,
+    mut ctx: Context,
     sys: TransitionSystem,
     opts: RandomOptions,
 ) -> RandomResult {
     // collect constraints for input randomization
-    let constraints = analyze_constraints(ctx, &sys, false);
+    let constraints = analyze_constraints(&mut ctx, &sys, false);
 
     // find out which inputs are unconstrained
     let constrained_inputs = constraints
@@ -61,19 +63,50 @@ pub fn random_testing(
     // we initialize all states to zero, since most bugs are not reset initialization bugs
     sim.init(InitKind::Zero);
 
+    // take a snapshot so that we can go back to the initial state
+    let start_state = sim.take_snapshot();
+
+    // create random number generator
     let mut rng = rand_xoshiro::Xoshiro256PlusPlus::seed_from_u64(1);
 
-    // randomize inputs to the system
-    randomize_inputs(ctx, &mut rng, &constraints, &unconstrained_inputs, &mut sim);
-    sim.update(); // FIXME: support partial re-evaluation!
+    // main loop
+    loop {
+        let k_max = sample_k_max(&mut rng, &opts);
 
-    // check if we are in a bad state
-    let bads = check_for_bad_states(ctx, &bad_states, &mut sim);
-    if !bads.is_empty() {
-        return RandomResult::Sat(bads);
+        // restore starting state
+        sim.restore_snapshot(start_state);
+
+        for k in 0..=k_max {
+            // randomize inputs to the system
+            randomize_inputs(
+                &mut ctx,
+                &mut rng,
+                &constraints,
+                &unconstrained_inputs,
+                &mut sim,
+            );
+            sim.update(); // FIXME: support partial re-evaluation!
+
+            // check if we are in a bad state
+            let bads = check_for_bad_states(&mut ctx, &bad_states, &mut sim);
+            if !bads.is_empty() {
+                return RandomResult::Sat(bads);
+            }
+
+            // advance the system
+            sim.step();
+        }
     }
-
     RandomResult::None
+}
+
+fn sample_k_max(rng: &mut impl Rng, opts: &RandomOptions) -> u64 {
+    let pick_large_k = rng.gen_bool(opts.large_k_prob);
+    if pick_large_k {
+        rng.gen_range(opts.small_k..(opts.large_k + 1))
+    } else {
+        rng.gen_range(1..(opts.small_k + 1))
+    }
 }
 
 fn check_for_bad_states(

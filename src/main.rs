@@ -24,7 +24,8 @@ struct Args {
 
 static RANDOM_OPTS: RandomOptions = RandomOptions {
     small_k: 50,
-    large_k: 10_000,
+    large_k: 1_000,
+    large_k_prob: 0.01,
 };
 
 fn main() {
@@ -38,7 +39,7 @@ fn main() {
     simplify_expressions(&mut ctx, &mut sys);
 
     // try random testing
-    match random_testing(&mut ctx, sys, RANDOM_OPTS) {
+    match random_testing(ctx, sys, RANDOM_OPTS) {
         RandomResult::None => {
             println!("None")
         }
