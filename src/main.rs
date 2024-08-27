@@ -2,6 +2,7 @@
 // released under MIT License
 // author: Kevin Laeufer <laeufer@cornell.edu>
 
+mod constraints;
 mod random;
 
 use clap::{arg, Parser};
