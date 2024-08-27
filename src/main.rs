@@ -6,9 +6,10 @@ mod constraints;
 mod random;
 
 use clap::{arg, Parser};
-use patronus::ir::{replace_anonymous_inputs_with_zero, simplify_expressions};
+use patronus::ir::{replace_anonymous_inputs_with_zero, simplify_expressions, Word};
 use patronus::*;
 use random::*;
+use std::fmt::{Debug, Formatter};
 
 #[derive(Parser, Debug)]
 #[command(name = "patron")]
@@ -40,11 +41,37 @@ fn main() {
 
     // try random testing
     match random_testing(ctx, sys, RANDOM_OPTS) {
-        RandomResult::None => {
-            println!("None")
+        ModelCheckResult::Unknown => {
+            // print nothing
         }
-        RandomResult::Sat(bad_states) => {
-            println!("Failed assertion: {:?}", bad_states);
+        ModelCheckResult::UnSat => {
+            println!("unsat");
         }
+        ModelCheckResult::Sat(wit) => {
+            println!("sat");
+            println!("TODO: serialize witness correctly!");
+            println!("{:?}", wit);
+        }
+    }
+}
+
+pub enum ModelCheckResult {
+    Unknown,
+    UnSat,
+    Sat(Witness),
+}
+
+pub type StepInt = u64;
+
+#[derive(Clone)]
+pub struct Witness {
+    pub input_data: Vec<Word>,
+    pub k: StepInt,
+    pub bad_states: Vec<usize>,
+}
+
+impl Debug for Witness {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Witness(k={}, {:?})", self.k, self.bad_states)
     }
 }

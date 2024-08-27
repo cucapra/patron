@@ -5,6 +5,7 @@
 // Random testing strategy to finding counter examples.
 
 use crate::constraints::{analyze_constraints, ConstraintCluster};
+use crate::{ModelCheckResult, StepInt, Witness};
 use patronus::ir::value::mask;
 use patronus::ir::*;
 use patronus::mc::Simulator;
@@ -22,17 +23,11 @@ pub struct RandomOptions {
     pub large_k_prob: f64,
 }
 
-#[derive(Debug)]
-pub enum RandomResult {
-    None,
-    Sat(Vec<usize>),
-}
-
 pub fn random_testing(
     mut ctx: Context,
     sys: TransitionSystem,
     opts: RandomOptions,
-) -> RandomResult {
+) -> ModelCheckResult {
     // collect constraints for input randomization
     let constraints = analyze_constraints(&mut ctx, &sys, false);
 
@@ -76,6 +71,9 @@ pub fn random_testing(
         // restore starting state
         sim.restore_snapshot(start_state);
 
+        // save state of random number generator
+        let rng_start = rng.clone();
+
         for k in 0..=k_max {
             // randomize inputs to the system
             randomize_inputs(
@@ -90,17 +88,74 @@ pub fn random_testing(
             // check if we are in a bad state
             let bads = check_for_bad_states(&mut ctx, &bad_states, &mut sim);
             if !bads.is_empty() {
-                return RandomResult::Sat(bads);
+                let wit = record_witness(
+                    &mut ctx,
+                    &sys,
+                    &constraints,
+                    &unconstrained_inputs,
+                    &mut sim,
+                    rng_start,
+                    k,
+                    bads,
+                );
+                return ModelCheckResult::Sat(wit);
             }
 
             // advance the system
             sim.step();
         }
     }
-    RandomResult::None
+    ModelCheckResult::Unknown
 }
 
-fn sample_k_max(rng: &mut impl Rng, opts: &RandomOptions) -> u64 {
+/// replays random execution in order to record the witness
+fn record_witness(
+    ctx: &Context,
+    sys: &TransitionSystem,
+    constraints: &[ConstraintCluster],
+    unconstrained_inputs: &[ExprRef],
+    sim: &mut Interpreter,
+    mut rng: rand_xoshiro::Xoshiro256PlusPlus,
+    k_bad: StepInt,
+    bads: Vec<usize>,
+) -> Witness {
+    let mut input_data = Vec::new();
+    for k in 0..k_bad {
+        // randomize inputs to the system
+        randomize_inputs(ctx, &mut rng, constraints, unconstrained_inputs, sim);
+        sim.update(); // FIXME: support partial re-evaluation!
+
+        for (expr, info) in sys.get_signals(|s| s.is_input()) {
+            if let Some(value) = sim.get(expr) {
+                input_data.extend_from_slice(value.words());
+            } else {
+                let width = ctx.get(expr).get_bv_type(ctx).unwrap();
+                if width > Word::BITS {
+                    println!(
+                        "TODO: deal with missing input {} of width: {}",
+                        ctx.get(info.name.unwrap()),
+                        width
+                    );
+                } else {
+                    input_data.push(0);
+                }
+            }
+        }
+
+        if k < (k_bad - 1) {
+            // advance the system
+            sim.step();
+        }
+    }
+
+    Witness {
+        input_data,
+        k: k_bad,
+        bad_states: bads,
+    }
+}
+
+fn sample_k_max(rng: &mut impl Rng, opts: &RandomOptions) -> StepInt {
     let pick_large_k = rng.gen_bool(opts.large_k_prob);
     if pick_large_k {
         rng.gen_range(opts.small_k..(opts.large_k + 1))
