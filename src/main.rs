@@ -42,5 +42,8 @@ fn main() {
         RandomResult::None => {
             println!("None")
         }
+        RandomResult::Sat(bad_states) => {
+            println!("Failed assertion: {:?}", bad_states);
+        }
     }
 }
