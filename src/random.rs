@@ -7,7 +7,9 @@
 use patronus::ir::*;
 use patronus::mc::Simulator;
 use patronus::sim::interpreter::{InitKind, Interpreter};
-use smallvec::{smallvec, SmallVec};
+use petgraph::adj::NodeIndex;
+use petgraph::visit::EdgeIndexable;
+use smallvec::{smallvec, ExtendFromSlice, SmallVec};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Copy, Clone)]
@@ -36,15 +38,8 @@ pub fn random_testing(
 
     // show system
     println!("{}", sys.serialize_to_str(ctx));
-
-    // analyze constraint dependencies
-    //let constraints = analyze_constraints(ctx, &sys, true);
-    //let constraints = merge_clusters(&constraints);
-    //println!("{constraints:?}");
-
-    let constraints = extract_constraint_graph(ctx, &sys, false);
-
-    println!("{:?}", petgraph::dot::Dot::new(&constraints));
+    let constraints = analyze_constraints(ctx, &sys, true);
+    println!("{:?}", constraints);
 
     // TODO
 
@@ -66,17 +61,40 @@ struct Constraints {
 type ExprRefVec = SmallVec<[ExprRef; 4]>;
 
 /// A number of constraints that are connected by common symbols.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 struct ConstraintCluster {
     exprs: ExprRefVec,
-    leaves: ExprRefVec,
+    states: ExprRefVec,
+    inputs: ExprRefVec,
 }
+
+impl ConstraintCluster {
+    fn new(exprs: ExprRefVec, states: ExprRefVec, inputs: ExprRefVec) -> Self {
+        let mut out = Self {
+            exprs,
+            states,
+            inputs,
+        };
+        out.dedup();
+        out
+    }
+    fn dedup(&mut self) {
+        self.exprs.sort_unstable();
+        self.exprs.dedup();
+        self.states.sort_unstable();
+        self.states.dedup();
+        self.inputs.sort_unstable();
+        self.inputs.dedup();
+    }
+}
+
+type ConstraintGraph = petgraph::Graph<ExprRef, ExprRef, petgraph::Undirected>;
 
 fn extract_constraint_graph(
     ctx: &mut Context,
     sys: &TransitionSystem,
     init: bool,
-) -> petgraph::Graph<ExprRef, ExprRef, petgraph::Undirected> {
+) -> ConstraintGraph {
     let state_map = sys.state_map();
     let mut out = petgraph::Graph::new_undirected();
     let mut var_to_node = HashMap::new();
@@ -131,64 +149,65 @@ fn analyze_constraints(
     sys: &TransitionSystem,
     init: bool,
 ) -> Vec<ConstraintCluster> {
+    use petgraph::visit::NodeIndexable;
+    let graph = extract_constraint_graph(ctx, sys, init);
+    println!("{:?}", petgraph::dot::Dot::new(&graph));
+
+    // extract connected components from graph
+    let groups = connected_components(&graph);
+    println!("{:?}", groups);
+
+    // turn components into constraint clusters
     let state_map = sys.state_map();
+    let mut out = Vec::with_capacity(groups.len());
+    for group in groups.into_iter() {
+        let mut symbols: ExprRefVec = smallvec![];
+        let mut exprs: ExprRefVec = smallvec![];
 
-    let mut out = Vec::new();
-    // we want to see which constraints depends on which inputs
-    for (expr_ref, info) in sys.constraints() {
-        // split constraints if they are conjunctions, i.e., we split and(a, b) into two constraints
-        let sub_constraints = split_conjunction(ctx, expr_ref);
-
-        for expr_ref in sub_constraints.into_iter() {
-            // analyze the constraint
-            let leaves = if init {
-                // if we are initializing, then we need to choose states and inputs
-                cone_of_influence_init(ctx, sys, expr_ref).into()
-            } else {
-                // if we are in a different cycle, then we do not actually care about states, since
-                // we cannot change them without going back in time
-                cone_of_influence_comb(ctx, sys, expr_ref)
-                    .into_iter()
-                    .filter(|e| !state_map.contains_key(e))
-                    .collect()
-            };
-
-            out.push(ConstraintCluster {
-                exprs: smallvec![expr_ref],
-                leaves,
-            });
+        for node_index in group {
+            let node = NodeIndexable::from_index(&graph, node_index);
+            symbols.push(*graph.node_weight(node).unwrap());
+            // add all edges
+            for edge in graph.edges(node) {
+                exprs.push(*edge.weight());
+            }
         }
+        let (states, inputs) = symbols.into_iter().partition(|s| state_map.contains_key(s));
+
+        out.push(ConstraintCluster::new(exprs, states, inputs));
     }
 
     out
 }
 
-fn merge_clusters(in_clusters: &[ConstraintCluster]) -> Vec<ConstraintCluster> {
-    let mut m = HashMap::new();
-    let mut clusters = Vec::new();
-    for cluster in in_clusters.iter() {
-        // collect all other constraints that share at least one leaf
-        let others: Vec<_> = cluster.leaves.iter().flat_map(|l| m.get(l)).collect();
+/// extracts connected components, based on petgraph::algo::connected_components
+fn connected_components(g: &ConstraintGraph) -> Vec<SmallVec<[usize; 2]>> {
+    use petgraph::prelude::EdgeRef;
+    use petgraph::visit::NodeIndexable;
 
-        if others.is_empty() {
-            let id = clusters.len();
-            clusters.push(cluster.clone());
-            for leaf in cluster.leaves.iter() {
-                m.insert(leaf, id);
-            }
+    let mut vertex_sets = petgraph::unionfind::UnionFind::new(g.node_bound());
+    for edge in g.edge_references() {
+        let (a, b) = (edge.source(), edge.target());
+        // union the two vertices of the edge
+        vertex_sets.union(
+            NodeIndexable::to_index(&g, a),
+            NodeIndexable::to_index(&g, b),
+        );
+    }
+
+    let mut clusters: HashMap<usize, SmallVec<[usize; 2]>> = HashMap::new();
+
+    for (index, label) in vertex_sets.into_labeling().into_iter().enumerate() {
+        if let Some(cluster) = clusters.get_mut(&label) {
+            cluster.push(index)
         } else {
-            todo!("deal with overlapping cluster");
+            clusters.insert(label, smallvec![index]);
         }
     }
 
-    // collect output
-    let mut indices = m.iter().map(|(_, idx)| *idx).collect::<Vec<_>>();
-    indices.sort();
-    indices.dedup();
-    indices
-        .into_iter()
-        .map(|ii| clusters[ii].clone())
-        .collect::<Vec<_>>()
+    let mut out = clusters.into_values().collect::<Vec<_>>();
+    out.sort_unstable();
+    out
 }
 
 fn split_conjunction(ctx: &mut Context, e: ExprRef) -> ExprRefVec {
