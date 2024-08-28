@@ -6,9 +6,11 @@ mod constraints;
 mod random;
 
 use clap::{arg, Parser};
-use patronus::ir::{replace_anonymous_inputs_with_zero, simplify_expressions, Word};
+use patronus::btor2::{DEFAULT_INPUT_PREFIX, DEFAULT_STATE_PREFIX};
+use patronus::ir::*;
 use patronus::*;
 use random::*;
+use std::borrow::Cow;
 use std::fmt::{Debug, Formatter};
 
 #[derive(Parser, Debug)]
@@ -35,6 +37,9 @@ fn main() {
     // load system
     let (mut ctx, mut sys) = btor2::parse_file(&args.filename).expect("Failed to load btor2 file!");
 
+    let orig_sys = sys.clone();
+    let orig_ctx = ctx.clone();
+
     // simplify system
     replace_anonymous_inputs_with_zero(&mut ctx, &mut sys);
     simplify_expressions(&mut ctx, &mut sys);
@@ -49,8 +54,8 @@ fn main() {
         }
         ModelCheckResult::Sat(wit) => {
             println!("sat");
-            println!("TODO: serialize witness correctly!");
-            println!("{:?}", wit);
+            wit.print(&orig_ctx, &orig_sys, &mut std::io::stdout())
+                .unwrap()
         }
     }
 }
@@ -63,15 +68,97 @@ pub enum ModelCheckResult {
 
 pub type StepInt = u64;
 
+/// In-memory representation of a witness.
+/// We currently assume that all states start at zero.
 #[derive(Clone)]
 pub struct Witness {
     pub input_data: Vec<Word>,
+    pub state_init: Vec<Word>,
     pub k: StepInt,
-    pub bad_states: Vec<usize>,
+    pub failed_safety: Vec<usize>,
 }
 
 impl Debug for Witness {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Witness(k={}, {:?})", self.k, self.bad_states)
+        write!(f, "Witness(k={}, {:?})", self.k, self.failed_safety)
+    }
+}
+
+/// Based on the upstream `patronus` implementation, however, using a much more lightweight
+/// data format.
+/// https://github.com/ekiwi/patronus/blob/a0ced099581d7a02079059eb96ac459e3133e70b/src/btor2/witness.rs#L224C22-L224C42
+impl Witness {
+    pub fn print(
+        &self,
+        ctx: &Context,
+        sys: &TransitionSystem,
+        out: &mut impl std::io::Write,
+    ) -> std::io::Result<()> {
+        // declare failed properties
+        for (ii, bad_id) in self.failed_safety.iter().enumerate() {
+            let is_last = ii + 1 == self.failed_safety.len();
+            write!(out, "b{bad_id}")?;
+            if is_last {
+                writeln!(out)?;
+            } else {
+                write!(out, " ")?;
+            }
+        }
+
+        // print starting state (always zero!)
+        let mut offset = 0;
+        if sys.states().count() > 0 {
+            writeln!(out, "#0")?;
+            for (ii, (_, state)) in sys.states().enumerate() {
+                let name = state
+                    .symbol
+                    .get_symbol_name(ctx)
+                    .map(Cow::from)
+                    .unwrap_or(Cow::from(format!("state_{}", ii)));
+
+                match state.symbol.get_type(ctx) {
+                    Type::BV(width) => {
+                        let words = width.div_ceil(Word::BITS) as usize;
+                        let value = ValueRef::new(&self.state_init[offset..offset + words], width);
+                        offset += words;
+                        writeln!(out, "{ii} {} {name}#0", value.to_bit_string())?;
+                    }
+                    Type::Array(_) => {
+                        todo!("print array values!")
+                    }
+                }
+            }
+        }
+
+        // filter out anonymous inputs which were removed from the system we were testing!
+        let inputs = sys
+            .get_signals(|s| s.is_input())
+            .iter()
+            .map(|(expr, _)| *expr)
+            .enumerate()
+            .collect::<Vec<_>>();
+
+        // print inputs
+        let mut offset = 0;
+        for k in 0..=self.k {
+            writeln!(out, "@{k}")?;
+            for (ii, input) in inputs.iter() {
+                let name = input.get_symbol_name(ctx).unwrap();
+                let is_removed = name.starts_with(DEFAULT_INPUT_PREFIX);
+                let width = input.get_bv_type(ctx).unwrap();
+                let words = width.div_ceil(Word::BITS) as usize;
+                let value = if is_removed {
+                    "0".repeat(width as usize)
+                } else {
+                    let value = ValueRef::new(&self.input_data[offset..offset + words], width);
+                    offset += words;
+                    value.to_bit_string()
+                };
+                writeln!(out, "{ii} {} {name}@{k}", value)?;
+            }
+        }
+        debug_assert_eq!(offset, self.input_data.len());
+        writeln!(out, ".")?;
+        Ok(())
     }
 }

@@ -88,6 +88,7 @@ pub fn random_testing(
             // check if we are in a bad state
             let bads = check_for_bad_states(&mut ctx, &bad_states, &mut sim);
             if !bads.is_empty() {
+                sim.restore_snapshot(start_state);
                 let wit = record_witness(
                     &mut ctx,
                     &sys,
@@ -119,12 +120,18 @@ fn record_witness(
     k_bad: StepInt,
     bads: Vec<usize>,
 ) -> Witness {
+    let mut state_init = Vec::new();
+    for (_, state) in sys.states() {
+        let value = sim.get(state.symbol).unwrap();
+        state_init.extend_from_slice(value.words());
+    }
+
     let mut input_data = Vec::new();
-    for k in 0..k_bad {
+    for k in 0..=k_bad {
         // randomize inputs to the system
         randomize_inputs(ctx, &mut rng, constraints, unconstrained_inputs, sim);
-        sim.update(); // FIXME: support partial re-evaluation!
 
+        // TODO: implement this without tunneling through the sim!
         for (expr, info) in sys.get_signals(|s| s.is_input()) {
             if let Some(value) = sim.get(expr) {
                 input_data.extend_from_slice(value.words());
@@ -141,17 +148,13 @@ fn record_witness(
                 }
             }
         }
-
-        if k < (k_bad - 1) {
-            // advance the system
-            sim.step();
-        }
     }
 
     Witness {
         input_data,
+        state_init,
         k: k_bad,
-        bad_states: bads,
+        failed_safety: bads,
     }
 }
 
