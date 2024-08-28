@@ -94,6 +94,7 @@ pub fn random_testing(
                     &sys,
                     &constraints,
                     &unconstrained_inputs,
+                    &bad_states,
                     &mut sim,
                     rng_start,
                     k,
@@ -115,6 +116,7 @@ fn record_witness(
     sys: &TransitionSystem,
     constraints: &[ConstraintCluster],
     unconstrained_inputs: &[ExprRef],
+    bad_states: &[ExprRef],
     sim: &mut Interpreter,
     mut rng: rand_xoshiro::Xoshiro256PlusPlus,
     k_bad: StepInt,
@@ -148,6 +150,15 @@ fn record_witness(
                 }
             }
         }
+
+        // TODO: remove
+        sim.update();
+        if k == k_bad {
+            // sanity check bad
+            let bads = check_for_bad_states(ctx, bad_states, sim);
+            debug_assert!(!bads.is_empty());
+        }
+        sim.step();
     }
 
     Witness {
