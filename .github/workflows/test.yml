@@ -45,6 +45,6 @@ jobs:
           submodules: 'true'
       - name: Build
         run: cargo build --verbose
-      - name: Run on Shift Register w/ Depth 16
-        run: cargo run -- hwmcc19/hwmcc19-single-benchmarks/btor2/bv/mann/data-integrity/unsafe/shift_register_top_w64_d16_e0.btor2
+      - name: Run on Shift Register w/ Depth 16 for 100k cycles
+        run: cargo run -- --max-cycles=100000 hwmcc19/hwmcc19-single-benchmarks/btor2/bv/mann/data-integrity/unsafe/shift_register_top_w64_d16_e0.btor2
 

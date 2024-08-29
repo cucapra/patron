@@ -21,6 +21,8 @@ use std::fmt::{Debug, Formatter};
 struct Args {
     #[arg(short, long)]
     verbose: bool,
+    #[arg(long)]
+    max_cycles: Option<u64>,
     #[arg(value_name = "BTOR2", index = 1)]
     filename: String,
 }
@@ -29,6 +31,7 @@ static RANDOM_OPTS: RandomOptions = RandomOptions {
     small_k: 50,
     large_k: 1_000,
     large_k_prob: 0.01,
+    max_cycles: None,
 };
 
 fn main() {
@@ -45,7 +48,9 @@ fn main() {
     simplify_expressions(&mut ctx, &mut sys);
 
     // try random testing
-    match random_testing(ctx, sys, RANDOM_OPTS) {
+    let mut options = RANDOM_OPTS.clone();
+    options.max_cycles = args.max_cycles;
+    match random_testing(ctx, sys, options) {
         ModelCheckResult::Unknown => {
             // print nothing
         }
@@ -110,6 +115,10 @@ impl Witness {
         if sys.states().count() > 0 {
             writeln!(out, "#0")?;
             for (ii, (_, state)) in sys.states().enumerate() {
+                if state.init.is_some() {
+                    // the state has a computed init value
+                    continue;
+                }
                 let name = state
                     .symbol
                     .get_symbol_name(ctx)

@@ -12,6 +12,7 @@ use patronus::mc::Simulator;
 use patronus::sim::interpreter::{InitKind, Interpreter};
 use rand::{Rng, SeedableRng};
 use std::collections::HashSet;
+use std::num::NonZeroU64;
 
 #[derive(Debug, Copy, Clone)]
 pub struct RandomOptions {
@@ -21,6 +22,8 @@ pub struct RandomOptions {
     pub large_k: u64,
     /// probability of sampling a large instead of a small k
     pub large_k_prob: f64,
+    /// maximum number of cycles to execute
+    pub max_cycles: Option<u64>,
 }
 
 pub fn random_testing(
@@ -28,6 +31,8 @@ pub fn random_testing(
     sys: TransitionSystem,
     opts: RandomOptions,
 ) -> ModelCheckResult {
+    // println!("{}", sys.serialize_to_str(&ctx));
+
     // collect constraints for input randomization
     let constraints = analyze_constraints(&mut ctx, &sys, false);
 
@@ -65,6 +70,7 @@ pub fn random_testing(
     let mut rng = rand_xoshiro::Xoshiro256PlusPlus::seed_from_u64(1);
 
     // main loop
+    let mut cycle_count = 0;
     loop {
         let k_max = sample_k_max(&mut rng, &opts);
 
@@ -105,6 +111,13 @@ pub fn random_testing(
 
             // advance the system
             sim.step();
+            cycle_count += 1;
+            if let Some(max_cycles) = opts.max_cycles {
+                if max_cycles <= cycle_count {
+                    println!("Exciting after executing {} cycles.", cycle_count);
+                    return ModelCheckResult::Unknown;
+                }
+            }
         }
     }
     ModelCheckResult::Unknown
@@ -153,6 +166,20 @@ fn record_witness(
 
         // TODO: remove
         sim.update();
+
+        // sanity check constraints
+        for cluster in constraints.iter() {
+            for expr in cluster.exprs() {
+                let is_ok = sim.get(*expr).unwrap().to_u64().unwrap() == 1;
+                debug_assert!(
+                    is_ok,
+                    "{k}: failed {} in {:?}",
+                    ctx.get(*expr).serialize_to_str(ctx),
+                    cluster
+                );
+            }
+        }
+
         if k == k_bad {
             // sanity check bad
             let bads = check_for_bad_states(ctx, bad_states, sim);

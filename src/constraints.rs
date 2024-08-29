@@ -55,11 +55,9 @@ pub fn analyze_constraints(
 ) -> Vec<ConstraintCluster> {
     use petgraph::visit::NodeIndexable;
     let graph = extract_constraint_graph(ctx, sys, init);
-    //println!("{:?}", petgraph::dot::Dot::new(&graph));
 
     // extract connected components from graph
     let groups = connected_components(&graph);
-    //println!("{:?}", groups);
 
     // turn components into constraint clusters
     let state_map = sys.state_map();
@@ -133,6 +131,8 @@ fn extract_constraint_graph(
                     // constraint creates a connection
                     out.add_edge(var_to_node[&leaf], var_to_node[other], expr_ref);
                 }
+                // we always need a self edge (in case there is only one leaf)
+                out.add_edge(var_to_node[&leaf], var_to_node[&leaf], expr_ref);
             }
         }
     }
