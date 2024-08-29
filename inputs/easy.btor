@@ -1,0 +1,11 @@
+; Copyright 2024 Cornell University
+; released under MIT License
+; author: Kevin Laeufer <laeufer@cornell.edu>
+; 
+; easy to satisfy bad state
+1 sort bitvec 12 ; bv<12>
+2 input 1 in ; input in : bv<12>
+3 const 1 000001111011
+4 sort bitvec 1 ; bv<12>
+5 eq 4 2 3
+6 bad 5
