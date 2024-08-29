@@ -29,6 +29,7 @@ pub fn random_testing(
     mut ctx: Context,
     sys: TransitionSystem,
     opts: RandomOptions,
+    seed: u64,
 ) -> ModelCheckResult {
     // println!("{}", sys.serialize_to_str(&ctx));
 
@@ -66,7 +67,7 @@ pub fn random_testing(
     let start_state = sim.take_snapshot();
 
     // create random number generator
-    let mut rng = rand_xoshiro::Xoshiro256PlusPlus::seed_from_u64(1);
+    let mut rng = rand_xoshiro::Xoshiro256PlusPlus::seed_from_u64(seed);
 
     // main loop
     let mut cycle_count = 0;
@@ -120,6 +121,8 @@ pub fn random_testing(
         }
     }
 }
+
+fn find_inputs() {}
 
 /// replays random execution in order to record the witness
 fn record_witness(

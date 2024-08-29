@@ -12,6 +12,7 @@ use patronus::*;
 use random::*;
 use std::borrow::Cow;
 use std::fmt::{Debug, Formatter};
+use std::sync::{Arc, RwLock};
 
 #[derive(Parser, Debug)]
 #[command(name = "patron")]
@@ -30,7 +31,7 @@ struct Args {
 static RANDOM_OPTS: RandomOptions = RandomOptions {
     small_k: 50,
     large_k: 1_000,
-    large_k_prob: 0.01,
+    large_k_prob: 0.0,
     max_cycles: None,
 };
 
@@ -47,24 +48,44 @@ fn main() {
     replace_anonymous_inputs_with_zero(&mut ctx, &mut sys);
     simplify_expressions(&mut ctx, &mut sys);
 
-    // try random testing
-    let mut options = RANDOM_OPTS.clone();
-    options.max_cycles = args.max_cycles;
-    match random_testing(ctx, sys, options) {
-        ModelCheckResult::Unknown => {
-            // print nothing
-        }
-        ModelCheckResult::UnSat => {
-            println!("unsat");
-        }
-        ModelCheckResult::Sat(wit) => {
-            println!("sat");
-            wit.print(&orig_ctx, &orig_sys, &mut std::io::stdout())
-                .unwrap()
+    // run testing on multiple cores
+    let num_threads = std::thread::available_parallelism().unwrap().get() as u64;
+    let result = Arc::new(RwLock::new(None));
+    for seed in 0..num_threads {
+        let result = result.clone();
+        let sys = sys.clone();
+        let ctx = ctx.clone();
+        let mut options = RANDOM_OPTS.clone();
+        options.max_cycles = args.max_cycles.map(|c| c.div_ceil(num_threads));
+        std::thread::spawn(move || {
+            let res = random_testing(ctx.clone(), sys.clone(), options, seed);
+            let mut shared_result = result.write().unwrap();
+            *shared_result = Some(res);
+        });
+    }
+
+    loop {
+        let shared_result = (*result.read().unwrap()).clone();
+        if let Some(res) = shared_result {
+            match res {
+                ModelCheckResult::Unknown => {
+                    // print nothing
+                }
+                ModelCheckResult::UnSat => {
+                    println!("unsat");
+                }
+                ModelCheckResult::Sat(wit) => {
+                    println!("sat");
+                    wit.print(&orig_ctx, &orig_sys, &mut std::io::stdout())
+                        .unwrap()
+                }
+            }
+            std::process::exit(0);
         }
     }
 }
 
+#[derive(Debug, Clone)]
 pub enum ModelCheckResult {
     Unknown,
     UnSat,
