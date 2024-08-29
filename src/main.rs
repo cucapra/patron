@@ -25,6 +25,8 @@ struct Args {
     #[arg(long)]
     single_thread: bool,
     #[arg(long)]
+    show_system: bool,
+    #[arg(long)]
     max_cycles: Option<u64>,
     #[arg(value_name = "BTOR2", index = 1)]
     filename: String,
@@ -32,8 +34,8 @@ struct Args {
 
 static RANDOM_OPTS: RandomOptions = RandomOptions {
     small_k: 50,
-    large_k: 1_000,
-    large_k_prob: 0.0,
+    large_k: 10_000,
+    large_k_prob: 0.5,
     max_cycles: None,
 };
 
@@ -49,6 +51,10 @@ fn main() {
     // simplify system
     replace_anonymous_inputs_with_zero(&mut ctx, &mut sys);
     simplify_expressions(&mut ctx, &mut sys);
+
+    if args.show_system {
+        println!("{}", sys.serialize_to_str(&ctx));
+    }
 
     // run testing on multiple cores
     let num_threads = if args.single_thread {
