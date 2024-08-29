@@ -6,7 +6,7 @@ mod constraints;
 mod random;
 
 use clap::{arg, Parser};
-use patronus::btor2::{DEFAULT_INPUT_PREFIX, DEFAULT_STATE_PREFIX};
+use patronus::btor2::DEFAULT_INPUT_PREFIX;
 use patronus::ir::*;
 use patronus::*;
 use random::*;

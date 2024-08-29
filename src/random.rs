@@ -12,7 +12,6 @@ use patronus::mc::Simulator;
 use patronus::sim::interpreter::{InitKind, Interpreter};
 use rand::{Rng, SeedableRng};
 use std::collections::HashSet;
-use std::num::NonZeroU64;
 
 #[derive(Debug, Copy, Clone)]
 pub struct RandomOptions {
@@ -120,7 +119,6 @@ pub fn random_testing(
             }
         }
     }
-    ModelCheckResult::Unknown
 }
 
 /// replays random execution in order to record the witness

@@ -39,9 +39,6 @@ impl ConstraintCluster {
     pub fn exprs(&self) -> &ExprRefVec {
         &self.exprs
     }
-    pub fn states(&self) -> &ExprRefVec {
-        &self.states
-    }
     pub fn inputs(&self) -> &ExprRefVec {
         &self.inputs
     }
