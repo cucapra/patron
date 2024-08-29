@@ -23,6 +23,8 @@ struct Args {
     #[arg(short, long)]
     verbose: bool,
     #[arg(long)]
+    single_thread: bool,
+    #[arg(long)]
     max_cycles: Option<u64>,
     #[arg(value_name = "BTOR2", index = 1)]
     filename: String,
@@ -49,7 +51,11 @@ fn main() {
     simplify_expressions(&mut ctx, &mut sys);
 
     // run testing on multiple cores
-    let num_threads = std::thread::available_parallelism().unwrap().get() as u64;
+    let num_threads = if args.single_thread {
+        1
+    } else {
+        std::thread::available_parallelism().unwrap().get() as u64
+    };
     let result = Arc::new(RwLock::new(None));
     for seed in 0..num_threads {
         let result = result.clone();
