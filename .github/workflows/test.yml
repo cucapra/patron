@@ -47,6 +47,8 @@ jobs:
         run: cargo build --verbose
       - name: Run on easy benchmark
         run: cargo run -- inputs/easy.btor
+      - name: Run on Adwait's easy benchmark
+        run: cargo run -- inputs/reg_en.bad.btor
       - name: Run on Shift Register w/ Depth 16 for 100k cycles
         run: cargo run -- --max-cycles=100000 hwmcc19/hwmcc19-single-benchmarks/btor2/bv/mann/data-integrity/unsafe/shift_register_top_w64_d16_e0.btor2
 
